@@ -1,0 +1,25 @@
+{
+  "name": "@repo/db",
+  "module": "index.ts",
+  "type": "module",
+  "scripts": {
+    "seed:districts": "bun scripts/seed-districts.ts"
+  },
+  "exports": {
+    ".": "./index.ts"
+  },
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "prisma": "^7.10.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "7",
+    "dotenv": "^18.0.6",
+    "pg": "^8.23.1"
+  }
+}

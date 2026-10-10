@@ -1,0 +1,462 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+// ---------------------------------------------------------------- enums
+
+enum Role {
+  CITIZEN
+  VOLUNTEER
+  NGO_COORDINATOR
+  ADMIN
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum ResponderType {
+  GOVERNMENT
+  NGO
+  COMMUNITY_GROUP
+  INDIVIDUAL
+}
+
+enum FloodStatus {
+  NORMAL
+  WATCH
+  WARNING
+  FLOODED
+}
+
+// Where a district status or event came from.
+// Effective status priority: MANUAL > GROUND_REPORTS > API_READING
+enum StatusSource {
+  API_READING
+  GROUND_REPORTS
+  MANUAL
+}
+
+enum EventStatus {
+  ACTIVE
+  CLOSED
+  DISMISSED
+}
+
+// In-kind needs only. There is deliberately no money/payment type.
+enum NeedType {
+  FOOD
+  WATER
+  MEDICAL
+  RESCUE
+  SHELTER
+  EVACUATION
+}
+
+enum RequestStatus {
+  SUBMITTED
+  NEEDS_CHECK
+  VERIFIED
+  CLAIMED
+  IN_PROGRESS
+  FULFILLED
+  NOT_GENUINE
+  REJECTED
+}
+
+enum Channel {
+  APP
+  VOLUNTEER_ENTRY
+  HELPLINE
+  SMS
+  WHATSAPP
+}
+
+enum VerificationMethod {
+  PHONE_CALL
+  FIELD_VISIT
+  OFFICIAL
+  OTHER
+}
+
+enum VerificationOutcome {
+  VERIFIED
+  REJECTED
+  NOT_GENUINE
+}
+
+enum ClaimType {
+  SELF_CLAIMED
+  ASSIGNED
+}
+
+enum AssignmentStatus {
+  ACTIVE
+  COMPLETED
+  FAILED
+  RELEASED
+  EXPIRED
+}
+
+enum CampType {
+  SHELTER
+  MEDICAL
+  FOOD_POINT
+  OTHER
+}
+
+enum NotificationChannel {
+  SMS
+  WHATSAPP
+  PUSH
+  IN_APP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// ---------------------------------------------------------------- people and orgs
+
+model User {
+  id             String         @id @default(uuid()) @db.Uuid
+  authId         String?        @unique @db.Uuid
+  phone          String         @unique
+  name           String?
+  role           Role           @default(CITIZEN)
+  // argon2id hash via Bun.password — never the plaintext password.
+  // Nullable: accounts created through OTP login have no password.
+  passwordHash   String?
+  // Citizens are approved on sign-up. Volunteers and coordinators start PENDING.
+  approvalStatus ApprovalStatus @default(APPROVED)
+  isBlocked      Boolean        @default(false)
+  organizationId String?        @db.Uuid
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization     Organization?     @relation(fields: [organizationId], references: [id])
+  volunteerProfile VolunteerProfile?
+  requests         Request[]         @relation("RequestRequester")
+  verifications    Verification[]
+  assignments      Assignment[]      @relation("AssignmentVolunteer")
+  assignmentsMade  Assignment[]      @relation("AssignmentAssigner")
+  declaredEvents   FloodEvent[]
+  auditLogs        AuditLog[]
+  notifications    Notification[]
+
+  @@index([role, approvalStatus])
+  @@map("users")
+}
+
+// Short-lived login codes. Only the argon2id hash is stored — the code
+// itself exists in the SMS for ~5 minutes and nowhere else.
+model OtpCode {
+  id         String    @id @default(uuid()) @db.Uuid
+  phone      String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, createdAt])
+  @@map("otp_codes")
+}
+
+model VolunteerProfile {
+  id             String        @id @default(uuid()) @db.Uuid
+  userId         String        @unique @db.Uuid
+  responderType  ResponderType @default(INDIVIDUAL)
+  isAvailable    Boolean       @default(false)
+  homeDistrictId String?       @db.Uuid
+  skills         String[] // e.g. boat, vehicle, medical
+  lastLocation   Unsupported("geography(Point,4326)")?
+  lastSeenAt     DateTime?
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  homeDistrict District? @relation(fields: [homeDistrictId], references: [id])
+
+  @@index([isAvailable])
+  @@index([lastLocation], type: Gist)
+  @@map("volunteer_profiles")
+}
+
+model Organization {
+  id             String         @id @default(uuid()) @db.Uuid
+  name           String
+  type           ResponderType  @default(NGO)
+  approvalStatus ApprovalStatus @default(PENDING)
+  contactPhone   String?
+  email          String?        @unique // primary alert inbox (SNS email delivery target)
+  createdAt      DateTime       @default(now())
+
+  members   User[]
+  districts OrganizationDistrict[]
+
+  @@map("organizations")
+}
+
+model OrganizationDistrict {
+  organizationId String @db.Uuid
+  districtId     String @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  district     District     @relation(fields: [districtId], references: [id], onDelete: Cascade)
+
+  @@id([organizationId, districtId])
+  @@map("organization_districts")
+}
+
+// ---------------------------------------------------------------- geography and flood data
+
+model District {
+  id           String @id @default(uuid()) @db.Uuid
+  name         String
+  state        String
+  lat                  Float? // marker center for map layers
+  lng                  Float?
+  isFloodProne         Boolean @default(false) // historically flood-prone (tagged at seed)
+  boundary Unsupported("geography(MultiPolygon,4326)")?
+  centroid Unsupported("geography(Point,4326)")?
+
+  statuses     DistrictStatus[]
+  events       FloodEvent[]
+  readings     Reading[]
+  requests     Request[]
+  clusters     RequestCluster[]
+  camps        ReliefCamp[]
+  organizations OrganizationDistrict[]
+  volunteers   VolunteerProfile[]
+
+  @@unique([state, name])
+  @@index([boundary], type: Gist)
+  @@map("districts")
+}
+
+// One row per (district, source). Effective status is computed in app code:
+// MANUAL if present, else GROUND_REPORTS, else API_READING, else NORMAL.
+// Removing a manual row lets the district fall back to automatic signals.
+model DistrictStatus {
+  id         String       @id @default(uuid()) @db.Uuid
+  districtId String       @db.Uuid
+  source     StatusSource
+  status     FloodStatus
+  reason     String?
+  eventId    String?      @db.Uuid
+  setById    String?      @db.Uuid // null for automatic sources
+  updatedAt  DateTime     @default(now()) @updatedAt
+
+  district District    @relation(fields: [districtId], references: [id], onDelete: Cascade)
+  event    FloodEvent? @relation(fields: [eventId], references: [id])
+
+  @@unique([districtId, source])
+  @@map("district_statuses")
+}
+
+model FloodEvent {
+  id           String       @id @default(uuid()) @db.Uuid
+  districtId   String       @db.Uuid
+  status       EventStatus  @default(ACTIVE)
+  source       StatusSource
+  reason       String?
+  declaredById String       @db.Uuid
+  isReplay     Boolean      @default(false) // demo events from historical data
+  startedAt    DateTime     @default(now())
+  closedAt     DateTime?
+
+  district       District         @relation(fields: [districtId], references: [id])
+  declaredBy     User             @relation(fields: [declaredById], references: [id])
+  requests       Request[]
+  districtStatus DistrictStatus[]
+
+  @@index([districtId, status])
+  @@map("flood_events")
+}
+
+// Raw readings, kept separate so thresholds can be retuned later.
+model Reading {
+  id             String   @id @default(uuid()) @db.Uuid
+  districtId     String   @db.Uuid
+  rainfallMm24h  Float?
+  riverDischarge Float?
+  source         String // e.g. open-meteo, replay
+  observedAt     DateTime
+  fetchedAt      DateTime @default(now())
+  isReplay       Boolean  @default(false)
+  replayRunId    String?
+
+  district District @relation(fields: [districtId], references: [id], onDelete: Cascade)
+
+  @@index([districtId, observedAt])
+  @@map("readings")
+}
+
+model ReliefCamp {
+  id         String   @id @default(uuid()) @db.Uuid
+  districtId String   @db.Uuid
+  name       String
+  type       CampType
+  location   Unsupported("geography(Point,4326)")?
+  capacity   Int?
+  contact    String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  district District @relation(fields: [districtId], references: [id])
+
+  @@index([districtId, isActive])
+  @@index([location], type: Gist)
+  @@map("relief_camps")
+}
+
+// ---------------------------------------------------------------- requests and dispatch
+
+model RequestCluster {
+  id         String   @id @default(uuid()) @db.Uuid
+  districtId String   @db.Uuid
+  centroid   Unsupported("geography(Point,4326)")?
+  createdAt  DateTime @default(now())
+
+  district District  @relation(fields: [districtId], references: [id])
+  requests Request[]
+
+  @@map("request_clusters")
+}
+
+model Request {
+  id                   String        @id @default(uuid()) @db.Uuid
+  clientId             String        @unique // client-generated, makes offline retries idempotent
+  requesterId          String?       @db.Uuid
+  districtId           String?       @db.Uuid
+  eventId              String?       @db.Uuid // optional: requests are allowed with no event
+  clusterId            String?       @db.Uuid
+  needType             NeedType
+  details              String?
+  peopleCount          Int           @default(1)
+  location             Unsupported("geography(Point,4326)")?
+  locationText         String?
+  status               RequestStatus @default(SUBMITTED)
+  channel              Channel       @default(APP)
+  priorityScore        Float         @default(0)
+  outsideKnownFloodArea Boolean      @default(false)
+  contactPhone         String // visible to approved responders only
+  reportedForSomeoneElse Boolean     @default(false)
+  reporterName         String?
+  reporterPhone        String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  requester     User?           @relation("RequestRequester", fields: [requesterId], references: [id])
+  district      District?       @relation(fields: [districtId], references: [id])
+  event         FloodEvent?     @relation(fields: [eventId], references: [id])
+  cluster       RequestCluster? @relation(fields: [clusterId], references: [id])
+  photos        RequestPhoto[]
+  verifications Verification[]
+  assignments   Assignment[]
+  notifications Notification[]
+
+  @@index([districtId, status])
+  @@index([status, priorityScore])
+  @@index([clusterId])
+  @@index([location], type: Gist)
+  @@map("requests")
+}
+
+model RequestPhoto {
+  id         String   @id @default(uuid()) @db.Uuid
+  requestId  String   @db.Uuid
+  storageKey String // object storage path, never a public URL
+  createdAt  DateTime @default(now())
+
+  request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@map("request_photos")
+}
+
+model Verification {
+  id         String              @id @default(uuid()) @db.Uuid
+  requestId  String              @db.Uuid
+  verifierId String              @db.Uuid
+  outcome    VerificationOutcome
+  method     VerificationMethod
+  notes      String?
+  createdAt  DateTime            @default(now())
+
+  request  Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  verifier User    @relation(fields: [verifierId], references: [id])
+
+  @@index([requestId])
+  @@map("verifications")
+}
+
+// Only one ACTIVE assignment per request: enforced by a partial unique index
+// in extras.sql (Prisma cannot express partial indexes).
+model Assignment {
+  id            String           @id @default(uuid()) @db.Uuid
+  requestId     String           @db.Uuid
+  volunteerId   String           @db.Uuid
+  assignedById  String?          @db.Uuid // null when self-claimed
+  claimType     ClaimType
+  status        AssignmentStatus @default(ACTIVE)
+  failureReason String?
+  claimedAt     DateTime         @default(now())
+  expiresAt     DateTime? // stale claims reopen after this
+  completedAt   DateTime?
+
+  request    Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  volunteer  User    @relation("AssignmentVolunteer", fields: [volunteerId], references: [id])
+  assignedBy User?   @relation("AssignmentAssigner", fields: [assignedById], references: [id])
+
+  @@index([requestId, status])
+  @@index([volunteerId, status])
+  @@map("assignments")
+}
+
+// ---------------------------------------------------------------- audit and notifications
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  action     String // e.g. request.verified, assignment.claimed, event.declared
+  entityType String
+  entityId   String
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id        String              @id @default(uuid()) @db.Uuid
+  userId    String?             @db.Uuid
+  requestId String?             @db.Uuid
+  toPhone   String?
+  channel   NotificationChannel
+  template  String // e.g. request_verified, volunteer_assigned, delivered
+  body      String
+  status    NotificationStatus  @default(PENDING)
+  createdAt DateTime            @default(now())
+  sentAt    DateTime?
+
+  user    User?    @relation(fields: [userId], references: [id])
+  request Request? @relation(fields: [requestId], references: [id])
+
+  @@index([status, createdAt])
+  @@map("notifications")
+}

@@ -1,0 +1,18 @@
+{
+  "name": "@repo/common",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./types": "./types/index.ts"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "typescript": "^5"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  }
+}

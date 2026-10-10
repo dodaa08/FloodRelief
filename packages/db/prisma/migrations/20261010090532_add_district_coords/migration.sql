@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "districts" ADD COLUMN     "isFloodProne" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "lat" DOUBLE PRECISION,
+ADD COLUMN     "lng" DOUBLE PRECISION;

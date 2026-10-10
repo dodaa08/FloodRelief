@@ -17,6 +17,7 @@ coverage
 
 # Turbo
 .turbo
+todo.txt
 
 # Vercel
 .vercel
