@@ -7,7 +7,6 @@ datasource db {
   provider = "postgresql"
 }
 
-
 // ---------------------------------------------------------------- enums
 
 enum Role {
@@ -199,6 +198,8 @@ model Organization {
   approvalStatus ApprovalStatus @default(PENDING)
   contactPhone   String?
   email          String?        @unique // primary alert inbox (SNS email delivery target)
+  website        String? // NGO website, checked by admins during verification
+  registrationId String? // NGO Darpan / Trust / 80G registration number
   createdAt      DateTime       @default(now())
 
   members   User[]

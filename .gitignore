@@ -37,3 +37,13 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Editor
+.vscode/
+
+# Ignored at owner's request (fresh clones won't get docs or new migrations)
+apps/be/POSTMAN.md
+packages/db/prisma/migrations/
+
+# Local user uploads (photo storage when STORAGE_PROVIDER=local)
+apps/be/uploads/

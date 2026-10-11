@@ -19,6 +19,18 @@ router.post("/", requireRole("CITIZEN"), async (req, res) => {
     }
     const data = parsed.data;
 
+    // Optional district attach for the live-map pin. Reject unknown ids so
+    // needs never point at a district that doesn't exist.
+    if (data.districtId) {
+      const district = await prisma.district.findUnique({
+        where: { id: data.districtId },
+        select: { id: true },
+      });
+      if (!district) {
+        return res.status(400).json({ error: "Unknown district" });
+      }
+    }
+
     // Idempotent by clientId: an offline client retrying the same
     // submission gets the original request back, not a duplicate.
     const existing = await prisma.request.findUnique({ where: { clientId: data.clientId } });
@@ -37,6 +49,7 @@ router.post("/", requireRole("CITIZEN"), async (req, res) => {
         details: data.details,
         peopleCount: data.peopleCount,
         locationText: data.locationText,
+        districtId: data.districtId ?? null,
         contactPhone: data.contactPhone ?? user.phone,
         reportedForSomeoneElse: data.reportedForSomeoneElse,
         reporterName: data.reporterName,

@@ -34,6 +34,7 @@ router.get("/", requireRole("VOLUNTEER", "NGO_COORDINATOR", "ADMIN"), async (req
       },
       include: {
         _count: { select: { photos: true } },
+        photos: { orderBy: { createdAt: "asc" }, take: 1 },
         requester: { select: { name: true } },
       },
       orderBy: [{ priorityScore: "desc" }, { createdAt: "asc" }],

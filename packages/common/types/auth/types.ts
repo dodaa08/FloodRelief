@@ -20,6 +20,11 @@ export const signupSchema = z
     name: z.string().trim().min(1, "Name cannot be blank").max(100).optional(),
     password: passwordSchema,
     role: z.enum(["CITIZEN", "VOLUNTEER", "NGO_COORDINATOR"]).optional(),
+    orgName: z.string().trim().min(2).max(120).optional(),
+    orgEmail: z.string().trim().email().max(120).optional(),
+    orgWebsite: z.string().trim().max(200).optional(),
+    orgContactPhone: phoneSchema.optional(),
+    orgRegistrationId: z.string().trim().max(80).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.role && value.role !== "CITIZEN" && !value.name) {
@@ -27,6 +32,13 @@ export const signupSchema = z
         code: "custom",
         path: ["name"],
         message: "Name is required for volunteers and coordinators",
+      });
+    }
+    if (value.role === "NGO_COORDINATOR" && (!value.orgName || !value.orgEmail)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["orgName"],
+        message: "Organization name and official email are required for coordinators",
       });
     }
   });

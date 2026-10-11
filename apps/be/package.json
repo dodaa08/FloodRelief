@@ -26,6 +26,8 @@
     "zod": "^4.6.5"
   },
   "scripts": {
-    "dev": "bun run --watch src/index.ts"
+    "dev": "bun run --watch src/index.ts",
+    "make-admin": "bun run scripts/make-admin.ts",
+    "typecheck": "tsc --noEmit"
   }
 }

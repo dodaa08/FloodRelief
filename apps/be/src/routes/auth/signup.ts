@@ -25,13 +25,31 @@ router.post("/", async (req, res) => {
 
     const passwordHash = await Bun.password.hash(data.password);
 
+    const newRole = data.role || "CITIZEN";
+    let organizationId: string | null = null;
+    if (newRole === "NGO_COORDINATOR") {
+      const org = await prisma.organization.upsert({
+        where: { email: data.orgEmail! },
+        update: {},
+        create: {
+          name: data.orgName!,
+          email: data.orgEmail!,
+          website: data.orgWebsite || null,
+          contactPhone: data.orgContactPhone ?? data.phone,
+          registrationId: data.orgRegistrationId || null,
+        },
+      });
+      organizationId = org.id;
+    }
+
     const user = await prisma.user.create({
       data: {
         phone: data.phone,
         name: data.name,
-        role: data.role || "CITIZEN",
+        role: newRole,
         approvalStatus: data.role && data.role !== "CITIZEN" ? "PENDING" : "APPROVED",
         passwordHash,
+        organizationId,
       },
     });
 

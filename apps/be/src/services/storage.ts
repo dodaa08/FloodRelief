@@ -1,6 +1,8 @@
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import path from "node:path";
 
 export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 const UPLOAD_EXPIRY_SECONDS = 5 * 60;
@@ -12,10 +14,29 @@ const EXTENSION_BY_CONTENT_TYPE: Record<string, string> = {
   "image/webp": "webp",
 };
 
-// Photos are optional for local dev: without a bucket the endpoints answer
-// 503 instead of throwing on startup.
+const CONTENT_TYPE_BY_EXTENSION: Record<string, string> = {
+  jpg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+};
+
+// Keys are namespaced by request, which lets us prove a storageKey belongs to
+// the request it is being attached to. This regex is also the path-traversal
+// guard for the local provider.
+const PHOTO_KEY_PATTERN = /^requests\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|webp)$/;
+
+export function isValidStorageKey(storageKey: string): boolean {
+  return PHOTO_KEY_PATTERN.test(storageKey);
+}
+
+// Default is "local" so photos work with zero setup. Set STORAGE_PROVIDER=s3
+// (plus S3_BUCKET / S3_ENDPOINT / keys) for real S3 or MinIO.
+export function storageProvider(): "local" | "s3" {
+  return (process.env.STORAGE_PROVIDER ?? "local") === "s3" ? "s3" : "local";
+}
+
 export function isStorageConfigured(): boolean {
-  return Boolean(process.env.S3_BUCKET);
+  return storageProvider() === "local" ? true : Boolean(process.env.S3_BUCKET);
 }
 
 function bucketName(): string {
@@ -37,8 +58,6 @@ function s3(): S3Client {
   return cachedClient;
 }
 
-// Keys are namespaced by request, which is what lets us prove a storageKey
-// belongs to the request it is being attached to.
 function photoKeyPrefix(requestId: string): string {
   return `requests/${requestId}/`;
 }
@@ -48,13 +67,44 @@ export function isPhotoKeyForRequest(storageKey: string, requestId: string): boo
 }
 
 export type PhotoUploadTarget = {
+  provider: "local" | "s3";
   uploadUrl: string;
-  fields: Record<string, string>;
+  // s3: presigned POST fields; local: raw PUT with these headers.
+  method: "POST" | "PUT";
+  fields?: Record<string, string>;
+  headers?: Record<string, string>;
   storageKey: string;
 };
 
-// The signed policy pins content-type and caps size, so a client can't use
-// the URL to upload a 2 GB video or an executable.
+// A 10-minute HMAC that proves the caller received a presign response for this
+// exact key. Good enough for a demo; Tokens expire on the next restart.
+function localUploadToken(storageKey: string): string {
+  const secret = process.env.JWT_SECRET ?? "dev-local-secret";
+  return createHmac("sha256", secret).update(`upload:${storageKey}`).digest("hex");
+}
+
+export function verifyLocalUploadToken(storageKey: string, token: string): boolean {
+  const expected = localUploadToken(storageKey);
+  const a = Buffer.from(expected);
+  const b = Buffer.from(token);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+export function resolveUploadPath(storageKey: string): string {
+  if (!isValidStorageKey(storageKey)) throw new Error("Invalid storage key");
+  const dir = path.resolve(process.env.UPLOAD_DIR || "uploads");
+  const full = path.join(dir, storageKey);
+  if (!full.startsWith(dir + path.sep)) throw new Error("Invalid storage key");
+  return full;
+}
+
+export function contentTypeForKey(storageKey: string): string {
+  const ext = path.extname(storageKey).replace(".", "");
+  return CONTENT_TYPE_BY_EXTENSION[ext] ?? "application/octet-stream";
+}
+
+// Provider dispatch. The route code above the waterline doesn't care which
+// storage backend is behind it.
 export async function createPhotoUpload(
   requestId: string,
   contentType: string,
@@ -63,6 +113,19 @@ export async function createPhotoUpload(
   if (!extension) throw new Error(`Unsupported content type: ${contentType}`);
 
   const storageKey = `${photoKeyPrefix(requestId)}${crypto.randomUUID()}.${extension}`;
+
+  if (storageProvider() === "local") {
+    return {
+      provider: "local",
+      uploadUrl: "/api/v1/photos/upload",
+      method: "PUT",
+      headers: {
+        "x-storage-key": storageKey,
+        "x-storage-token": localUploadToken(storageKey),
+      },
+      storageKey,
+    };
+  }
 
   const { url, fields } = await createPresignedPost(s3(), {
     Bucket: bucketName(),
@@ -75,10 +138,13 @@ export async function createPhotoUpload(
     Fields: { "Content-Type": contentType },
   });
 
-  return { uploadUrl: url, fields, storageKey };
+  return { provider: "s3", uploadUrl: url, method: "POST", fields, storageKey };
 }
 
 export async function createPhotoDownloadUrl(storageKey: string): Promise<string> {
+  if (storageProvider() === "local") {
+    return `/api/v1/photos/file/${encodeURIComponent(storageKey)}`;
+  }
   return getSignedUrl(
     s3(),
     new GetObjectCommand({ Bucket: bucketName(), Key: storageKey }),

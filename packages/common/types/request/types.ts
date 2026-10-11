@@ -21,8 +21,10 @@ export const createRequestSchema = z
     details: z.string().trim().max(2000).optional(),
     peopleCount: z.number().int().min(1, "At least 1 person").max(10000).default(1),
     // Text is the v1 location input ("near the old bridge, Ward 4").
-    // Precise coordinates will be added separately.
     locationText: z.string().trim().min(3, "Describe the location").max(500),
+    // Optional district attach: pins the need on the live map at the
+    // district's coordinates. Must be a real district id (checked server-side).
+    districtId: z.uuid("districtId must be a UUID").optional(),
     // Defaults to the logged-in user's own number.
     contactPhone: phoneSchema.optional(),
     reportedForSomeoneElse: z.boolean().default(false),

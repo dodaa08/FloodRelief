@@ -1,5 +1,5 @@
 import { prisma, type FloodStatus } from "@repo/db";
-import { getFloodLive, type FloodLive, type RiskLevel } from "../services/flood.js";
+import { getFloodLive, type FloodLive } from "../services/flood.js";
 import { publishFloodRegionUpdated } from "../services/notify.js";
 
 export type DistrictFloodRow = {

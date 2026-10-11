@@ -30,6 +30,15 @@ const requestSchema = z.object({ phone: phoneSchema });
 const verifySchema = z.object({
   phone: phoneSchema,
   code: z.string().regex(/^\d{6}$/, "Code must be 6 digits"),
+  // Signup-only fields, used when verify creates a brand-new account.
+  name: z.string().trim().min(2).max(80).optional(),
+  role: z.enum(["VOLUNTEER", "NGO_COORDINATOR"]).optional(),
+  // Coordinator-only: organization evidence, reviewed by an admin.
+  orgName: z.string().trim().min(2).max(120).optional(),
+  orgEmail: z.string().trim().email().max(120).optional(),
+  orgWebsite: z.string().trim().max(200).optional(),
+  orgContactPhone: phoneSchema.optional(),
+  orgRegistrationId: z.string().trim().max(80).optional(),
 });
 
 // POST /auth/otp/request  { phone }
@@ -66,16 +75,20 @@ router.post("/request", requestIpLimiter, async (req, res) => {
   }
 });
 
-// POST /auth/otp/verify  { phone, code }
+// POST /auth/otp/verify  { phone, code, name?, role? }
 // Signing in and signing up are the same call: a verified phone with no
-// existing account gets one created (passwordless, CITIZEN).
+// existing account gets one created (passwordless). Pass name/role to register
+// as a responder; those accounts start PENDING admin approval.
 router.post("/verify", async (req, res) => {
   try {
     const parsed = verifySchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.issues });
     }
-    const { phone, code } = parsed.data;
+    const { phone, code, name, role } = parsed.data;
+
+    // Coordinator org evidence. Required when registering as NGO_COORDINATOR
+    // (checked below); ignored for sign-ins and other roles.
 
     const otp = await prisma.otpCode.findFirst({
       where: { phone, consumedAt: null, expiresAt: { gt: new Date() } },
@@ -103,7 +116,42 @@ router.post("/verify", async (req, res) => {
 
     let user = await prisma.user.findUnique({ where: { phone } });
     if (!user) {
-      user = await prisma.user.create({ data: { phone } });
+      const newRole = role ?? "CITIZEN";
+      const { orgName, orgEmail, orgWebsite, orgContactPhone, orgRegistrationId } =
+        parsed.data;
+
+      let organizationId: string | null = null;
+      if (newRole === "NGO_COORDINATOR") {
+        if (!orgName || !orgEmail) {
+          return res
+            .status(400)
+            .json({ error: "Organization name and official email are required" });
+        }
+        // One org per official email; joiners attach to the existing record
+        // and the admin is the backstop against impersonation.
+        const org = await prisma.organization.upsert({
+          where: { email: orgEmail },
+          update: {},
+          create: {
+            name: orgName,
+            email: orgEmail,
+            website: orgWebsite || null,
+            contactPhone: orgContactPhone ?? phone,
+            registrationId: orgRegistrationId || null,
+          },
+        });
+        organizationId = org.id;
+      }
+
+      user = await prisma.user.create({
+        data: {
+          phone,
+          name: name ?? null,
+          role: newRole,
+          approvalStatus: newRole !== "CITIZEN" ? "PENDING" : "APPROVED",
+          organizationId,
+        },
+      });
     }
     if (user.isBlocked) {
       return res.status(403).json({ error: "Account is blocked" });
