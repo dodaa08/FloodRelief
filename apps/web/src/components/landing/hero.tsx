@@ -56,7 +56,7 @@ export function Hero() {
           transition={{ duration: 0.6, ease: "easeOut", delay: 0.1 }}
           className="mx-auto mt-6 max-w-xl text-lg leading-8 text-muted-foreground"
         >
-          Rahat connects citizens facing floods with verified volunteers and
+          Pukaar connects citizens facing disaster with verified volunteers and
           NGOs. Post a need, get it confirmed, and watch help arrive.
         </motion.p>
 
