@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { SignupForm } from "@/components/auth/signup-form";
 
 export const metadata: Metadata = {
-  title: "Create account · Rahat",
+  title: "Create account · Pukaar",
 };
 
 export default function SignupPage() {

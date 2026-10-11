@@ -10,7 +10,7 @@ export function SigninForm() {
       description="Sign in with a one-time code. Brand-new numbers get an account automatically."
       footer={
         <>
-          New to Rahat? <AuthFooterLink to="/signup">Create an account</AuthFooterLink>
+          New to Pukaar? <AuthFooterLink to="/signup">Create an account</AuthFooterLink>
         </>
       }
     >

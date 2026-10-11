@@ -111,7 +111,7 @@ export function OtpAuthFlow({ mode }: { mode: Mode }) {
       if (data.user.approvalStatus !== "APPROVED") {
         toast.success("You're signed in — approval pending");
       } else if (mode === "signup") {
-        toast.success("Welcome to Rahat 👋");
+        toast.success("Welcome to Pukaar 👋");
       } else {
         toast.success(`Welcome back, ${data.user.name ?? "friend"} 👋`);
       }
@@ -188,7 +188,7 @@ export function OtpAuthFlow({ mode }: { mode: Mode }) {
                     <Input
                       id="orgName"
                       type="text"
-                      placeholder="Rahat Volunteers"
+                      placeholder="Pukaar Volunteers"
                       value={orgName}
                       onChange={(e) => setOrgName(e.target.value)}
                       required
@@ -199,7 +199,7 @@ export function OtpAuthFlow({ mode }: { mode: Mode }) {
                     <Input
                       id="orgEmail"
                       type="email"
-                      placeholder="contact@rahatvolunteers.org"
+                      placeholder="contact@pukaarvolunteers.org"
                       autoComplete="email"
                       value={orgEmail}
                       onChange={(e) => setOrgEmail(e.target.value)}
@@ -213,7 +213,7 @@ export function OtpAuthFlow({ mode }: { mode: Mode }) {
                         id="orgWebsite"
                         type="text"
                         inputMode="url"
-                        placeholder="rahatvolunteers.org"
+                        placeholder="pukaarvolunteers.org"
                         value={orgWebsite}
                         onChange={(e) => setOrgWebsite(e.target.value)}
                       />

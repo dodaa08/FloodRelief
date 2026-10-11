@@ -9,11 +9,11 @@ export function absoluteApiUrl(pathOrUrl: string): string {
   return /^https?:\/\//.test(pathOrUrl) ? pathOrUrl : `${API_ORIGIN}${pathOrUrl}`;
 }
 
-export const AUTH_TOKEN_KEY = "rahat_token";
+export const AUTH_TOKEN_KEY = "pukaar_token";
 
 // Broadcast whenever the stored session changes so useUser() instances (e.g.
 // the header menu) pick up sign-in/sign-out without a full page reload.
-export const AUTH_EVENT = "rahat:auth-changed";
+export const AUTH_EVENT = "pukaar:auth-changed";
 
 function dispatchAuthEvent(): void {
   if (typeof window !== "undefined") {

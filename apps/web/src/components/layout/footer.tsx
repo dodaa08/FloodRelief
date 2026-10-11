@@ -52,7 +52,7 @@ export function Footer() {
         </div>
 
         <div className="mt-10 border-t pt-6 text-sm text-muted-foreground">
-          <span>© 2026 Rahat. Built for good.</span>
+          <span>© 2026 Pukaar. Built for good.</span>
         </div>
       </div>
     </footer>

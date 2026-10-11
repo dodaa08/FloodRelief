@@ -17,11 +17,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Rahat · Flood relief, connected",
-    template: "%s · Rahat",
+    default: "Pukaar · Disaster relief, connected",
+    template: "%s · Pukaar",
   },
   description:
-    "Rahat connects citizens facing floods with verified volunteers and NGOs. Post a need, get it verified, and watch help arrive.",
+    "Pukaar connects citizens facing disaster with verified volunteers and NGOs. Post a need, get it verified, and watch help arrive.",
 };
 
 export default function RootLayout({

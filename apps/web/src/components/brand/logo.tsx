@@ -14,9 +14,9 @@ export function Logo({ size = "md" }: { size?: "md" | "lg" }) {
         <Waves className={size === "lg" ? "h-6 w-6" : "h-5 w-5"} />
       </span>
       <span className="text-lg font-semibold tracking-tight">
-        Rahat
+        Pukaar
         <span className="ml-1.5 hidden text-sm font-normal text-muted-foreground sm:inline">
-          flood relief
+          disaster relief
         </span>
       </span>
     </Link>
